@@ -82,224 +82,11 @@ class Twitter
 			}
 		}
 
+
 		// retrieve statuses
 		$statuses = $this->_fetch_data($uniqueid);
 
-		if ( ! $statuses)
-		{
-			return;
-		}
-
-
-		// Some variables needed for the parsing process
-
-		$count		= 0;
-		$created_at	= array();
-
-
-		// parse created_at date variables outside of the loop to save processing
-		if (preg_match_all("/".LD."(user_)?created_at\s+format=(\042|\047)([^\\2]*?)\\2".RD."/s", $this->EE->TMPL->tagdata, $matches))
-		{
-			for ($i = 0; $i < count($matches['0']); $i++)
-			{
-				$matches['0'][$i] = str_replace(array(LD, RD), '', $matches['0'][$i]);
-				$created_at[$matches['0'][$i]] = $this->EE->localize->fetch_date_params($matches['3'][$i]);
-			}
-		}
-
-		$return_data = '';
-
-		$count = 0;
-
-		// Loop through all statuses and do our template replacements
-		foreach ($statuses as $key => $val)
-		{
-			$count++;
-
-			if ($count > $this->limit)
-			{
-				break;
-			}
-
-			// If this is a retweet, let's use that data instead
-			$retweeted = FALSE;
-			if (isset($val['retweeted_status'])) {
-				$retweeted = TRUE;
-				$retweeter = $val['user']['name'];
-				$val = $val['retweeted_status'];
-				$val['retweeter'] = $retweeter;
-			}
-
-			$tagdata = $this->EE->TMPL->tagdata;
-
-			// Link up anything that needs to be linked up
-			if (isset($val['entities']) && is_array($val['entities']))
-			{
-				$find = array();
-				$replace = array();
-
-				foreach ($val['entities'] as $type => $found)
-				{
-					foreach ($found as $info)
-					{
-						switch($type)
-						{
-							case 'user_mentions':	$find[]		= '@'.$info['screen_name'];
-										$replace[]	= "<a target='".$this->target."' title='{$info['name']}' href='http://twitter.com/{$info['screen_name']}'>@{$info['screen_name']}</a>";
-								break;
-							case 'hashtags':		$find[]		= '#'.$info['text'];
-													// Because EE's xss_clean replaces %23 with #, we need to use %2523; EE changes %25 into %, so we get %23.
-													$replace[]	= "<a target='".$this->target."' title='Search for {$info['text']}' href='http://twitter.com/search?q=%2523{$info['text']}'>#{$info['text']}</a>";
-								break;
-							case 'urls':			$find[]		= $info['url'];
-								$displayurl = $info['url'];
-								if (isset($info['display_url'])) { $displayurl = $info['display_url']; }
-													$replace[]	= "<a target='".$this->target."' title='{$info['expanded_url']}' href='{$info['url']}'>{$displayurl}</a>";
-						}
-					}
-				}
-
-				$val['text'] = str_replace($find, $replace, $val['text']);
-
-				unset($find, $replace);
-			}
-
-			$val['id'] = $val['id_str'];
-
-			// Add count
-
-			$val['count'] = $count;
-
-
-			// Clean the tweet
-
-			$val['text'] = $this->EE->security->xss_clean($val['text']);
-			$val['text'] = $this->EE->functions->encode_ee_tags($val['text'], TRUE);
-
-			// Prep conditionals
-
-			$cond	 = $val;
-			$tagdata = $this->EE->functions->prep_conditionals($tagdata, $cond['user']);
-
-			unset($cond['user']);
-			$cond['retweeted'] = $retweeted;
-			$tagdata = $this->EE->functions->prep_conditionals($tagdata, $cond);
-
-
-			// Parse all found variables
-
-			foreach ($this->EE->TMPL->var_single as $var_key => $var_val)
-			{
-				// parse {switch} variable
-
-				if (preg_match("/^switch\s*=.+/i", $var_key))
-				{
-					$sparam = $this->EE->functions->assign_parameters($var_key);
-
-					$sw = '';
-
-					if (isset($sparam['switch']))
-					{
-						$sopt = explode("|", $sparam['switch']);
-
-						$sw = $sopt[($count-1 + count($sopt)) % count($sopt)];
-					}
-
-					$tagdata = $this->EE->TMPL->swap_var_single($var_key, $sw, $tagdata);
-				}
-
-
-				// parse {created_at}
-
-				if (isset($created_at[$var_key]))
-				{
-					$date = ($var_key[0] == 'u') ? $statuses[$key]['user']['user_created_at'] : $statuses[$key]['created_at'];
-
-					$human_time = $this->_parse_twitter_date($date);
-
-					// We already have GMT so we need $this->EE->localize->convert_human_date_to_gmt to
-					// NOT do any localization.  Fib the Session userdata for sec.
-					$dst		= $this->EE->session->userdata['daylight_savings'];
-					$timezone	= $this->EE->session->userdata['timezone'];
-
-					$this->EE->session->userdata['timezone'] = 'UTC';
-					$this->EE->session->userdata['daylight_savings'] = 'n';
-
-					$date = $this->EE->localize->convert_human_date_to_gmt($human_time);
-
-					// reset Session userdata to original values
-					$this->EE->session->userdata['timezone'] = $timezone;
-					$this->EE->session->userdata['daylight_savings'] = $dst;
-
-					foreach ($created_at[$var_key] as $dvar)
-					{
-						$var_val = str_replace($dvar, $this->EE->localize->convert_timestamp($dvar, $date, TRUE), $var_val);
-					}
-
-					$tagdata = $this->EE->TMPL->swap_var_single($var_key, $var_val, $tagdata);
-				}
-
-
-				// Parse {status_relative_date}
-
-				if ($var_key == 'status_relative_date')
-				{
-					$human_time	= $this->_parse_twitter_date($val['created_at']);
-
-					$date		= $this->EE->localize->set_server_time($this->EE->localize->convert_human_date_to_gmt($human_time));
-					$tagdata	= $this->EE->TMPL->swap_var_single($var_key, $this->EE->localize->format_timespan($this->EE->localize->now - $date), $tagdata);
-				}
-
-				if ($var_key == 'permalink')
-				{
-					$tagdata = $this->EE->TMPL->swap_var_single($var_key, $this->_build_permalink($val), $tagdata);
-				}
-
-				if ($var_key == 'reply_intent')
-				{
-					$tagdata = $this->EE->TMPL->swap_var_single($var_key, $this->_build_reply_intent($val), $tagdata);
-				}
-
-				if ($var_key == 'retweet_intent')
-				{
-					$tagdata = $this->EE->TMPL->swap_var_single($var_key, $this->_build_retweet_intent($val), $tagdata);
-				}
-
-				if ($var_key == 'favorite_intent')
-				{
-					$tagdata = $this->EE->TMPL->swap_var_single($var_key, $this->_build_favorite_intent($val), $tagdata);
-				}
-
-				if ($var_key == 'relative_date')
-				{
-					$tagdata = $this->EE->TMPL->swap_var_single($var_key, $this->_build_relative_date($val), $tagdata);
-				}
-
-				if ($var_key == 'iso_date')
-				{
-					$tagdata = $this->EE->TMPL->swap_var_single($var_key, $this->_build_iso_date($val), $tagdata);
-				}
-
-				// Parse all others, main array, user array, all others
-
-				if (isset($val[$var_key]))
-				{
-					$tagdata = $this->EE->TMPL->swap_var_single($var_key, $val[$var_key], $tagdata);
-				}
-				elseif (isset($val['user'][$var_key]))
-				{
-					$tagdata = $this->EE->TMPL->swap_var_single($var_key, $val['user'][$var_key], $tagdata);
-				}
-				else
-				{
-					$tagdata = $this->EE->TMPL->swap_var_single($var_key, '', $tagdata);
-				}
-			}
-
-			$return_data .= $tagdata;
-		}
-
-		return $return_data;
+		return $this->render_tweets($statuses);
 	}
 
 	public function search()
@@ -340,6 +127,15 @@ class Twitter
 		$statuses = $this->_fetch_data_search($uniqueid);
 		$statuses = $statuses['statuses'];
 
+		return $this->render_tweets($statuses);
+	}
+
+	public function script() {
+		return "<script type=\"text/javascript\" src=\"//platform.twitter.com/widgets.js\"></script>";
+	}
+
+	public function render_tweets($statuses) {
+
 		if ( ! $statuses)
 		{
 			return;
@@ -555,10 +351,6 @@ class Twitter
 		}
 
 		return $return_data;
-	}
-
-	public function script() {
-		return "<script type=\"text/javascript\" src=\"//platform.twitter.com/widgets.js\"></script>";
 	}
 
 	// --------------------------------------------------------------------
@@ -672,8 +464,6 @@ class Twitter
 		if ($this->cache_expired OR ! $cached_json)
 		{
 			$this->EE->TMPL->log_item("Fetching Twitter search remotely");
-
-			var_dump('here');
 
 			if ( function_exists('curl_init'))
 			{
@@ -959,7 +749,6 @@ class Twitter
 
 		$params = array('include_rts'=>'true', 'q' => $this->q);
 		$data = $oauth->get("search/tweets", $params);
-		var_dump($data);
 
 		return $data;
 	}
