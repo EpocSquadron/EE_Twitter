@@ -90,6 +90,20 @@ The profile image of the person who created the tweet, using the HTTPS protocol.
 
 If the tweet is a retweet, the _original_ tweet will be shown. Use `{if retweet}` to determine if the tweet being shown is a retweet. `{retweeter}` will then include the name of the person that retweeted the tweet.
 
+### Search
+
+    {exp:twitter:search q="#hashtag" limit=5}
+
+    {/exp:twitter:search}
+
+#### Parameters
+
+Same as for `exp:twitter:user`, except `q` for query instead of `screen_name`.
+
+#### Single Variable Tags
+
+Same as for `exp:twitter:user`.
+
 ### Script
 
     {exp:twitter:script}
