@@ -54,10 +54,10 @@ class Twitter
 		$this->refresh		= $this->EE->TMPL->fetch_param('twitter_refresh', $this->refresh);
 		$this->limit		= $this->EE->TMPL->fetch_param('limit', $this->limit);
 		$this->use_stale	= $this->EE->TMPL->fetch_param('use_stale_cache', 'yes');
-		$this->screen_name	= $this->EE->TMPL->fetch_param('screen_name');
+		$screenname			= $this->EE->TMPL->fetch_param('screen_name');
 		$this->target		= $this->EE->TMPL->fetch_param('target', '');
 
-		if (!$this->screen_name)
+		if (!$screenname)
 		{
 			$this->EE->TMPL->log_item("Parameter screen_name was not provided");
 			return;
@@ -65,26 +65,15 @@ class Twitter
 
 		// timeline type
 		$timeline	= 'user';
-		$log_extra	= "For User {$this->screen_name}";
-
-		$this->parameters['screen_name'] = $this->screen_name;
+		$log_extra	= "For User {$screenname}";
 
 		$this->EE->TMPL->log_item("Using '{$timeline}' Twitter Timeline {$log_extra}");
 
 		// Create a unique ID for caching.
-		$uniqueid = $timeline.'_timeline'.$this->screen_name;
-
-		if (count($this->parameters))
-		{
-			foreach ($this->parameters as $k => $v)
-			{
-				$uniqueid .= '/' . urlencode($k) . '=' . urlencode($v);
-			}
-		}
-
+		$uniqueid = $timeline.'_timeline'.$screenname;
 
 		// retrieve statuses
-		$statuses = $this->_fetch_data($uniqueid);
+		$statuses = $this->_fetch_data_timeline($screenname, $uniqueid);
 
 		return $this->render_tweets($statuses);
 	}
@@ -95,10 +84,10 @@ class Twitter
 		$this->refresh		= $this->EE->TMPL->fetch_param('twitter_refresh', $this->refresh);
 		$this->limit		= $this->EE->TMPL->fetch_param('limit', $this->limit);
 		$this->use_stale	= $this->EE->TMPL->fetch_param('use_stale_cache', 'yes');
-		$this->q	= $this->EE->TMPL->fetch_param('q');
+		$query				= $this->EE->TMPL->fetch_param('q');
 		$this->target		= $this->EE->TMPL->fetch_param('target', '');
 
-		if (!$this->q)
+		if (!$query)
 		{
 			$this->EE->TMPL->log_item("Parameter q was not provided");
 			return;
@@ -106,26 +95,16 @@ class Twitter
 
 		// timeline type
 		$timeline	= 'search';
-		$log_extra	= "For search {$this->q}";
-
-		$this->parameters['q'] = $this->q;
+		$log_extra	= "For search {$query}";
 
 		$this->EE->TMPL->log_item("Using '{$timeline}' Twitter Timeline {$log_extra}");
 
 		// Create a unique ID for caching.
-		$uniqueid = $timeline.'_timeline'.$this->q;
-
-		if (count($this->parameters))
-		{
-			foreach ($this->parameters as $k => $v)
-			{
-				$uniqueid .= '/' . urlencode($k) . '=' . urlencode($v);
-			}
-		}
+		$uniqueid = $timeline.'_timeline'.$query;
 
 		// retrieve statuses
-		$statuses = $this->_fetch_data_search($uniqueid);
-		$statuses = $statuses['statuses'];
+		$data = $this->_fetch_data_search($query, $uniqueid);
+		$statuses = $data['statuses'];
 
 		return $this->render_tweets($statuses);
 	}
@@ -363,7 +342,7 @@ class Twitter
 	 * @access	public
 	 * @return	array
 	 */
-	function _fetch_data($uniqueid)
+	function _fetch_data_timeline($screenname, $uniqueid)
 	{
 		$rawjson			= '';
 		$cached_json		= $this->_check_cache($uniqueid);
@@ -374,7 +353,7 @@ class Twitter
 
 			if ( function_exists('curl_init'))
 			{
-				$rawjson = $this->_curl_fetch();
+				$rawjson = $this->_oauth_fetch_timeline($scrennname);
 			}
 			else {
 				// We only support CURL, because that's what oauth uses.
@@ -456,7 +435,7 @@ class Twitter
 	 * @access	public
 	 * @return	array
 	 */
-	function _fetch_data_search($uniqueid)
+	function _fetch_data_search($query, $uniqueid)
 	{
 		$rawjson			= '';
 		$cached_json		= $this->_check_cache($uniqueid);
@@ -467,7 +446,7 @@ class Twitter
 
 			if ( function_exists('curl_init'))
 			{
-				$rawjson = $this->_curl_fetch_search();
+				$rawjson = $this->_oauth_fetch_search($query);
 			}
 			else {
 				// We only support CURL, because that's what oauth uses.
@@ -696,7 +675,7 @@ class Twitter
 	 * @param	string
 	 * @return	string
 	 */
-	function _curl_fetch()
+	function _oauth_fetch_timeline($screenname)
 	{
 		$data = '';
 
@@ -713,7 +692,7 @@ class Twitter
 		$oauth = new TwitterOAuth($settings['consumer_key'], $settings['consumer_secret'], $access_token, $access_token_secret);
 		$oauth->decode_json = FALSE;
 
-		$params = array('include_rts'=>'true', 'screen_name' => $this->screen_name);
+		$params = array('include_rts'=>'true', 'screen_name' => $screnname);
 		$data = $oauth->get("statuses/user_timeline", $params);
 
 		return $data;
@@ -730,7 +709,7 @@ class Twitter
 	 * @param	string
 	 * @return	string
 	 */
-	function _curl_fetch_search()
+	function _oauth_fetch_search($query)
 	{
 		$data = '';
 
@@ -747,7 +726,7 @@ class Twitter
 		$oauth = new TwitterOAuth($settings['consumer_key'], $settings['consumer_secret'], $access_token, $access_token_secret);
 		$oauth->decode_json = FALSE;
 
-		$params = array('include_rts'=>'true', 'q' => $this->q);
+		$params = array('include_rts'=>'true', 'q' => $query);
 		$data = $oauth->get("search/tweets", $params);
 
 		return $data;
